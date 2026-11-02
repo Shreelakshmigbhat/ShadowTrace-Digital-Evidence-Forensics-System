@@ -2,6 +2,7 @@
 // Buttons, inputs, cards and headers are shared with Member A's pages (components/evidence/ui.tsx).
 import type { ReactNode } from "react";
 export { Card, PageHeader, ErrorBox, NotLoggedIn, inputCls, btnCls, btnGhostCls } from "@/components/evidence/ui";
+export { StatusBadge as StatusBadgeFromEvidence } from "@/components/evidence/ui";
 
 const SEVERITY_STYLES: Record<string, string> = {
   LOW: "bg-green-100 text-green-800",

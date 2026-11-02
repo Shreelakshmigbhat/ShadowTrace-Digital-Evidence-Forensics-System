@@ -11,7 +11,7 @@ export async function sha256Hex(file: File): Promise<string> {
 
 // Calls our API and unwraps the { data } | { error } envelope.
 export async function callApi<T = any>(
-  method: "GET" | "POST" | "PUT" | "PATCH",
+  method: "GET" | "POST" | "PUT" | "PATCH" | "DELETE",
   url: string,
   body?: unknown
 ): Promise<{ data?: T; error?: string }> {
