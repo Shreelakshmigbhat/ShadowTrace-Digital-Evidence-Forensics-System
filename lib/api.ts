@@ -69,6 +69,10 @@ export function handleError(e: unknown): Response {
       return fail("Evidence is being modified by someone else. Please retry.", 409);
   }
 
+  // MongoDB not reachable (server down, wrong URI): tell the caller plainly instead of answering a bare 500
+  if (["MongoServerSelectionError", "MongoNetworkError", "MongoNotConnectedError"].includes(err?.name))
+    return fail("MongoDB is unavailable. Please try again later.", 503);
+
   // MongoDB: 121 = DocumentValidationFailure ($jsonSchema rejected the document)
   if (err?.code === 121) return fail("Artifact does not match the required schema for this evidence type", 400);
 

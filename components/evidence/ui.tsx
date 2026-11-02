@@ -48,6 +48,6 @@ export function ErrorBox({ message }: { message: string }) {
 
 export function NotLoggedIn() {
   return (
-    <ErrorBox message="Not logged in. (Stub auth: set DEV_USER_ID and DEV_ROLE in .env.local and restart the dev server.)" />
+    <ErrorBox message="Your session has ended. Please sign in again at /login." />
   );
 }

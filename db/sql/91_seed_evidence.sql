@@ -1,5 +1,5 @@
 -- 91_seed_evidence.sql (Member A): sample evidence data
--- Assumes users 1-8 exist (created by 90_seed_core.sql): 1 = ADMIN, 2-4 = INVESTIGATOR, 5-8 = ANALYST.
+-- Assumes users 1-8 exist (created by 90_seed_core.sql): 1 = ADMIN, 2-5 = INVESTIGATOR, 6-8 = ANALYST.
 -- Inserted directly (not via the transfer procedure), so evidence.custodian_id is set to the
 -- recipient of each evidence's LAST transfer (or the collector if it was never transferred).
 USE shadowtrace;
