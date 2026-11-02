@@ -35,8 +35,15 @@ export const topMobileApps = [
   { $project: { _id: 0, app: "$_id", devices: 1 } },
 ];
 
+// 4. Count of findings per severity (feeds the severity chart on /evidence/stats).
+export const findingSeverityCounts = [
+  { $unwind: "$findings" },
+  { $group: { _id: "$findings.severity", count: { $sum: 1 } } },
+  { $project: { _id: 0, severity: "$_id", count: 1 } },
+];
+
 // ---- runner: only when executed directly, not when imported ----
-if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+async function main() {
   const client = new MongoClient(process.env.MONGODB_URI!);
   try {
     const col = client.db(process.env.MONGODB_DB).collection("evidence_artifacts");
@@ -51,4 +58,9 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
   } finally {
     await client.close();
   }
+}
+
+// Importing this file (from an API route) must NOT run main(); only `node <this file>` does.
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  main().catch((e) => { console.error(e); process.exit(1); });
 }

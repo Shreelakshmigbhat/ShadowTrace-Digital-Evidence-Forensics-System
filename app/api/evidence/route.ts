@@ -1,75 +1,19 @@
 import { z } from "zod";
 import type { ResultSetHeader } from "mysql2/promise";
-import { query, withTransaction } from "@/lib/db";
+import { withTransaction } from "@/lib/db";
 import { requireRole } from "@/lib/auth";
 import { ok, parse, readJson, handleError, toSqlDateTime } from "@/lib/api";
+import { listEvidence } from "@/lib/evidence-service";
 
 export const dynamic = "force-dynamic"; // never cache: data changes constantly
 
-const STATUSES = ["COLLECTED", "IN_ANALYSIS", "IN_STORAGE", "RELEASED", "DESTROYED"] as const;
-
-// ORDER BY cannot use "?" placeholders, so the client only chooses a KEY from this whitelist
-// and we map it to a column we wrote ourselves. User text never reaches the SQL string.
-const SORT_COLUMNS = {
-  id: "id",
-  file_name: "file_name",
-  status: "status",
-  type: "type_name",
-  custodian: "custodian_name",
-  collected_at: "collected_at",
-} as const;
-
-const listQuery = z.object({
-  status: z.enum(STATUSES).optional(),
-  type: z.string().trim().min(1).max(50).optional(), // type name, e.g. "Disk Image"
-  custodian: z.coerce.number().int().positive().optional(),
-  search: z.string().trim().min(1).max(100).optional(),
-  page: z.coerce.number().int().min(1).default(1),
-  pageSize: z.coerce.number().int().min(1).max(100).default(20),
-  sort: z.enum(Object.keys(SORT_COLUMNS) as [keyof typeof SORT_COLUMNS, ...(keyof typeof SORT_COLUMNS)[]]).default("collected_at"),
-  order: z.enum(["asc", "desc"]).default("desc"),
-});
-
 // GET /api/evidence  -> filtered, sorted, paginated list from the view v_evidence_current
-// DBMS concepts: VIEW (joins hidden behind v_evidence_current), parameterised WHERE, LIKE search,
-//                ORDER BY whitelist, LIMIT/OFFSET pagination, COUNT(*) for the total.
+// DBMS concepts: VIEW, parameterised WHERE, LIKE search, ORDER BY whitelist, LIMIT/OFFSET pagination,
+//                COUNT(*) for the total. (SQL lives in lib/evidence-service.ts, shared with the page.)
 export async function GET(req: Request) {
   try {
     await requireRole(["ADMIN", "INVESTIGATOR", "ANALYST"]);
-
-    // Ignore empty query-string values (?status=) instead of failing validation.
-    const raw = Object.fromEntries([...new URL(req.url).searchParams].filter(([, v]) => v !== ""));
-    const q = parse(listQuery, raw);
-
-    const where: string[] = [];
-    const params: (string | number)[] = [];
-    if (q.status) { where.push("status = ?"); params.push(q.status); }
-    if (q.type) { where.push("type_name = ?"); params.push(q.type); }
-    if (q.custodian) { where.push("custodian_id = ?"); params.push(q.custodian); }
-    if (q.search) {
-      // escape LIKE wildcards typed by the user so "50%" searches for a literal percent sign
-      where.push("file_name LIKE ?");
-      params.push(`%${q.search.replace(/[\\%_]/g, "\\$&")}%`);
-    }
-    const whereSql = where.length ? `WHERE ${where.join(" AND ")}` : "";
-
-    const [{ total }] = await query<{ total: number }>(
-      `SELECT COUNT(*) AS total FROM v_evidence_current ${whereSql}`,
-      params
-    );
-
-    // LIMIT/OFFSET are inlined: they are integers already checked by zod (min/max above),
-    // and mysql2's prepared statements reject "?" in LIMIT on MySQL 8.
-    const limit = q.pageSize;
-    const offset = (q.page - 1) * q.pageSize;
-    const items = await query(
-      `SELECT * FROM v_evidence_current ${whereSql}
-       ORDER BY ${SORT_COLUMNS[q.sort]} ${q.order === "asc" ? "ASC" : "DESC"}, id DESC
-       LIMIT ${limit} OFFSET ${offset}`,
-      params
-    );
-
-    return ok({ items, page: q.page, pageSize: q.pageSize, total, totalPages: Math.ceil(total / q.pageSize) });
+    return ok(await listEvidence(Object.fromEntries(new URL(req.url).searchParams)));
   } catch (e) {
     return handleError(e);
   }
