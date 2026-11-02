@@ -201,3 +201,23 @@ END$$
 
 DELIMITER ;
 
+-- ==== PART 4: FULL-TEXT INDEXES AND TRIGGER ================================
+-- FULLTEXT indexes power MATCH(...) AGAINST(...) searches ranked by relevance (much faster than LIKE '%x%').
+-- Note: InnoDB ignores words shorter than 3 characters and a built-in list of stop words ("the", "of", ...).
+ALTER TABLE investigations       ADD FULLTEXT INDEX ft_inv_title_code (title, case_code);
+ALTER TABLE investigation_events ADD FULLTEXT INDEX ft_event_description (description);
+
+DELIMITER $$
+
+-- Every status change leaves a trace on the case timeline. @app_user_id is set by the application (NULL = system).
+CREATE TRIGGER trg_inv_au_status
+AFTER UPDATE ON investigations
+FOR EACH ROW
+BEGIN
+  IF OLD.status <> NEW.status THEN
+    INSERT INTO investigation_events (investigation_id, event_type, description, created_by)
+    VALUES (NEW.id, 'STATUS_CHANGED', CONCAT('Status changed from ', OLD.status, ' to ', NEW.status), @app_user_id);
+  END IF;
+END$$
+
+DELIMITER ;
