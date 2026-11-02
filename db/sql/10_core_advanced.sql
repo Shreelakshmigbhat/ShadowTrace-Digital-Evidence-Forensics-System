@@ -102,3 +102,102 @@ CREATE EVENT IF NOT EXISTS evt_refresh_monthly_case_stats
   COMMENT 'Rebuild monthly_case_stats'
   DO CALL refresh_monthly_case_stats();
 
+-- ==== PART 3: ROUTINES =====================================================
+DELIMITER $$
+
+-- Function: whole days a case has been open (or was open, if closed). READS SQL DATA because it queries a table;
+-- it is not DETERMINISTIC because an open case's age changes with NOW(). Returns NULL for an unknown id.
+CREATE FUNCTION case_duration_days(p_id INT) RETURNS INT
+READS SQL DATA
+BEGIN
+  DECLARE v_days INT;
+  SELECT DATEDIFF(COALESCE(closed_at, NOW()), opened_at) INTO v_days FROM investigations WHERE id = p_id;
+  RETURN v_days;
+END$$
+
+-- Procedure returning FOUR result sets (functions can only return one scalar):
+--   1 the case, 2 its timeline (newest first), 3 its evidence, 4 its assets.
+-- With mysql2, CALL returns an array: [caseRows, eventRows, evidenceRows, assetRows, okPacket].
+CREATE PROCEDURE get_case_summary(IN p_case_code VARCHAR(20))
+BEGIN
+  DECLARE v_id INT;
+
+  SELECT id INTO v_id FROM investigations WHERE case_code = p_case_code;
+  IF v_id IS NULL THEN
+    SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Case not found';
+  END IF;
+
+  SELECT o.*, case_duration_days(o.id) AS days_open
+  FROM v_case_overview o WHERE o.id = v_id;
+
+  SELECT ev.id, ev.event_type, ev.event_time, ev.description, u.full_name AS created_by_name
+  FROM investigation_events ev
+  LEFT JOIN users u ON u.id = ev.created_by
+  WHERE ev.investigation_id = v_id
+  ORDER BY ev.event_time DESC, ev.id DESC;
+
+  SELECT e.id, e.file_name, e.status, t.type_name, h.full_name AS custodian_name, ei.linked_at
+  FROM evidence_investigations ei
+  JOIN evidence e       ON e.id = ei.evidence_id
+  JOIN evidence_types t ON t.id = e.evidence_type_id
+  JOIN users h          ON h.id = e.custodian_id
+  WHERE ei.investigation_id = v_id
+  ORDER BY ei.linked_at DESC, e.id;
+
+  SELECT a.id, a.asset_type, a.identifier, a.description, ia.linked_at
+  FROM investigation_assets ia
+  JOIN assets a ON a.id = ia.asset_id
+  WHERE ia.investigation_id = v_id
+  ORDER BY a.asset_type, a.identifier;
+END$$
+
+-- Closes a case atomically: status + close date + timeline event, or nothing.
+-- Only the lead investigator or an ADMIN may close it. Business-rule errors use SIGNAL SQLSTATE '45000'.
+-- Call it on its own connection (it runs START TRANSACTION itself): SET @app_user_id = ?; CALL close_investigation(?, ?);
+CREATE PROCEDURE close_investigation(IN p_id INT, IN p_user INT)
+BEGIN
+  DECLARE v_status VARCHAR(10);
+  DECLARE v_lead   INT;
+  DECLARE v_role   VARCHAR(30);
+  DECLARE v_active BOOLEAN;
+
+  DECLARE EXIT HANDLER FOR SQLEXCEPTION
+  BEGIN
+    ROLLBACK;
+    RESIGNAL;
+  END;
+
+  SET @app_user_id = p_user;          -- the status-change trigger records who did it
+
+  START TRANSACTION;
+
+  SELECT status, lead_investigator_id INTO v_status, v_lead
+  FROM investigations WHERE id = p_id FOR UPDATE;      -- lock the case row
+
+  IF v_status IS NULL THEN
+    SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Case not found';
+  END IF;
+  IF v_status = 'CLOSED' THEN
+    SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Case is already closed';
+  END IF;
+
+  SELECT r.role_name, u.is_active INTO v_role, v_active
+  FROM users u JOIN roles r ON r.id = u.role_id WHERE u.id = p_user;
+
+  IF v_role IS NULL OR v_active = FALSE THEN
+    SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Acting user does not exist or is inactive';
+  END IF;
+  IF p_user <> v_lead AND v_role <> 'ADMIN' THEN
+    SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Only the lead investigator or an admin can close this case';
+  END IF;
+
+  UPDATE investigations SET status = 'CLOSED', closed_at = NOW() WHERE id = p_id;
+
+  INSERT INTO investigation_events (investigation_id, event_type, description, created_by)
+  VALUES (p_id, 'CASE_CLOSED', 'Case closed', p_user);
+
+  COMMIT;
+END$$
+
+DELIMITER ;
+
