@@ -13,6 +13,7 @@ export const pool: mysql.Pool =
     password: process.env.MYSQL_PASSWORD,
     database: process.env.MYSQL_DATABASE,
     connectionLimit: 10,
+    timezone: "Z", // read/write DATETIME as UTC so it matches the Docker MySQL server clock
   });
 g.mysqlPool = pool;
 
