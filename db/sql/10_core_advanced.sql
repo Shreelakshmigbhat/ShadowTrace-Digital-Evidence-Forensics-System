@@ -45,3 +45,60 @@ LEFT JOIN investigations i ON i.lead_investigator_id = u.id
 LEFT JOIN evidence_investigations ei ON ei.investigation_id = i.id
 GROUP BY u.id, u.full_name, u.is_active;
 
+-- ==== PART 2: SUMMARY TABLE (MySQL's stand-in for a materialized view) =====
+-- MySQL has no materialized views. The usual substitute is a plain table that a procedure
+-- rebuilds on demand (or on a schedule). Reads are then instant, at the price of slightly stale data.
+CREATE TABLE monthly_case_stats (
+  stat_month        CHAR(7)       NOT NULL PRIMARY KEY,         -- 'YYYY-MM'
+  cases_opened      INT           NOT NULL DEFAULT 0,
+  cases_closed      INT           NOT NULL DEFAULT 0,
+  critical_opened   INT           NOT NULL DEFAULT 0,
+  avg_days_to_close DECIMAL(7,1)  NULL,                          -- NULL when nothing closed that month
+  refreshed_at      DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT chk_mcs_month CHECK (stat_month REGEXP '^[0-9]{4}-(0[1-9]|1[0-2])$'),
+  CONSTRAINT chk_mcs_counts CHECK (cases_opened >= 0 AND cases_closed >= 0 AND critical_opened >= 0)
+) ENGINE=InnoDB;
+
+DELIMITER $$
+
+-- Rebuilds the whole summary in one transaction: readers see either the old rows or the new rows, never half.
+-- (DELETE, not TRUNCATE: TRUNCATE commits implicitly and could not be rolled back.)
+-- Call it on its own connection: START TRANSACTION here would commit a caller's open transaction.
+CREATE PROCEDURE refresh_monthly_case_stats()
+BEGIN
+  DECLARE EXIT HANDLER FOR SQLEXCEPTION
+  BEGIN
+    ROLLBACK;
+    RESIGNAL;
+  END;
+
+  START TRANSACTION;
+
+  DELETE FROM monthly_case_stats;
+
+  INSERT INTO monthly_case_stats (stat_month, cases_opened, cases_closed, critical_opened, avg_days_to_close)
+  SELECT m.stat_month,
+         (SELECT COUNT(*) FROM investigations WHERE DATE_FORMAT(opened_at, '%Y-%m') = m.stat_month),
+         (SELECT COUNT(*) FROM investigations WHERE closed_at IS NOT NULL AND DATE_FORMAT(closed_at, '%Y-%m') = m.stat_month),
+         (SELECT COUNT(*) FROM investigations WHERE severity = 'CRITICAL' AND DATE_FORMAT(opened_at, '%Y-%m') = m.stat_month),
+         (SELECT ROUND(AVG(DATEDIFF(closed_at, opened_at)), 1) FROM investigations
+           WHERE closed_at IS NOT NULL AND DATE_FORMAT(closed_at, '%Y-%m') = m.stat_month)
+  FROM (
+    SELECT DATE_FORMAT(opened_at, '%Y-%m') AS stat_month FROM investigations
+    UNION                                                   -- UNION (not ALL) removes duplicate months
+    SELECT DATE_FORMAT(closed_at, '%Y-%m') FROM investigations WHERE closed_at IS NOT NULL
+  ) AS m;
+
+  COMMIT;
+END$$
+
+DELIMITER ;
+
+-- Optional: refresh every night. CREATE EVENT succeeds even if the scheduler is off; the event then simply
+-- does not fire until someone runs  SET GLOBAL event_scheduler = ON;  (the Docker MySQL image has it ON).
+CREATE EVENT IF NOT EXISTS evt_refresh_monthly_case_stats
+  ON SCHEDULE EVERY 1 DAY
+  STARTS (CURRENT_TIMESTAMP + INTERVAL 1 DAY)
+  COMMENT 'Rebuild monthly_case_stats'
+  DO CALL refresh_monthly_case_stats();
+

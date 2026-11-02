@@ -30,3 +30,6 @@ INSERT INTO evidence_investigations (evidence_id, investigation_id, linked_at) V
   (2, 8, '2025-05-15 13:00:00'),
   (22, 10, '2025-06-18 08:00:00'),
   (25, 10, '2025-06-18 08:00:00');
+
+-- Fill the monthly summary table now that investigations exist (see refresh_monthly_case_stats in 10_core_advanced.sql).
+CALL refresh_monthly_case_stats();
