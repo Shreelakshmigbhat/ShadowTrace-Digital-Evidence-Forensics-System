@@ -1,28 +1,39 @@
 // ===========================================================================
 // AUTH CONTRACT  (shared by Member A and Member B)
 //
-// This file is a STUB. It trusts DEV_USER_ID / DEV_ROLE from .env.local so pages
-// and APIs can be built before login exists.
-//
-// Member B: replace the INTERNALS of getSession() with real JWT-cookie logic
-// (jose + bcrypt). DO NOT change the exported names or signatures below.
+// getSession() and requireRole(roles[]) keep the signatures every route and page already uses.
+// Real implementation: the session is a signed JWT in an httpOnly cookie (see lib/session-token.ts).
 // ===========================================================================
+import { cookies } from "next/headers";
+import { query } from "@/lib/db";
+import { SESSION_COOKIE, verifySession, type Role, type Session } from "@/lib/session-token";
 
-export type Role = "ADMIN" | "INVESTIGATOR" | "ANALYST";
-export type Session = { userId: number; role: Role };
-
-const ROLES: Role[] = ["ADMIN", "INVESTIGATOR", "ANALYST"];
+export type { Role, Session };
 
 // Returns the current user, or null if nobody is logged in.
+// The token proves WHO the user is, but the database is asked for what they may do NOW:
+// a user who was deactivated, or whose role was changed, is treated accordingly on the very next request
+// instead of keeping their old powers until the token expires.
 export async function getSession(): Promise<Session | null> {
-  const userId = Number(process.env.DEV_USER_ID);
-  const role = process.env.DEV_ROLE as Role;
-  if (!userId || !ROLES.includes(role)) return null;
-  return { userId, role };
+  const token = cookies().get(SESSION_COOKIE)?.value;
+  if (!token) return null;
+
+  const claims = await verifySession(token);
+  if (!claims) return null;
+
+  const [user] = await query<{ full_name: string; is_active: number; role_name: Role }>(
+    `SELECT u.full_name, u.is_active, r.role_name
+     FROM users u JOIN roles r ON r.id = u.role_id
+     WHERE u.id = ?`,
+    [claims.userId]
+  );
+  if (!user || !user.is_active) return null;
+
+  return { userId: claims.userId, role: user.role_name, name: user.full_name };
 }
 
 // Use at the top of a route handler:  const s = await requireRole(["ADMIN"]);
-// Throws a Response (401 not logged in / 403 wrong role). Catch it with `asResponse`.
+// Throws a Response (401 not logged in / 403 wrong role). Catch it with `handleError` / `asResponse`.
 export async function requireRole(roles: Role[]): Promise<Session> {
   const session = await getSession();
   if (!session) throw Response.json({ error: "Not logged in" }, { status: 401 });
