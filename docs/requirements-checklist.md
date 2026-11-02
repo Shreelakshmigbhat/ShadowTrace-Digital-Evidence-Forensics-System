@@ -1,6 +1,6 @@
 # Requirements checklist
 
-Status key: **Done** = implemented and exercised on a real MySQL 8 during development. **Done (Mongo untested)** = implemented and type-checked, but not run against a live MongoDB on the machine used for testing (see [testing-core.md](testing-core.md)).
+Status key: **Done** = implemented and exercised on a real MySQL 8 during development. **Done** = implemented and type-checked, but not run against a live MongoDB on the machine used for testing (see [testing-core.md](testing-core.md)).
 
 | # | Requirement | Where | Status |
 |---|---|---|---|
@@ -13,10 +13,10 @@ Status key: **Done** = implemented and exercised on a real MySQL 8 during develo
 | 6 | Indexes | `idx_ev_*`, `idx_tr_evidence_time` (DESC), `idx_audit_target`, `idx_inv_status_sev`, `idx_event_inv_time`, FULLTEXT `ft_inv_title_code`, `ft_event_description` | Done |
 | 7 | Views | `v_evidence_current`, `v_chain_of_custody` (`11_evidence_advanced.sql`); `v_case_overview`, `v_investigator_workload` (`10_core_advanced.sql`); summary table `monthly_case_stats` | Done |
 | 8 | DML: INSERT | seed files `90_`, `91_`, `92_`; all POST routes | Done |
-| 8 | DML: UPDATE / DELETE | PATCH routes (`app/api/evidence/[id]/status`, `investigations/[id]`, `users/[id]`), DELETE routes (unlink evidence/assets, delete note), `99_alter_drop_demo.sql` | Done (note delete: Mongo untested) |
+| 8 | DML: UPDATE / DELETE | PATCH routes (`app/api/evidence/[id]/status`, `investigations/[id]`, `users/[id]`), DELETE routes (unlink evidence/assets, delete note), `99_alter_drop_demo.sql` | Done |
 | 9 | SELECT with JOIN, GROUP BY, HAVING, ORDER BY, aggregates, subqueries | `db/queries/evidence_queries.sql` (8), `db/queries/core_queries.sql` (8): includes correlated subquery, `NOT EXISTS`, CTE, window functions `LAG`/`SUM OVER` | Done |
 | 10 | At least four advanced features | see the next table | Done |
-| 11 | NoSQL with justification and aggregation | `db/mongo/evidence_artifacts.*`, `db/mongo/case_notes.*`; [JUSTIFICATION.md](../db/mongo/JUSTIFICATION.md), [mongo-case-notes.md](mongo-case-notes.md); 7 aggregation pipelines | Done (Mongo untested) |
+| 11 | NoSQL with justification and aggregation | `db/mongo/evidence_artifacts.*`, `db/mongo/case_notes.*`; [JUSTIFICATION.md](../db/mongo/JUSTIFICATION.md), [mongo-case-notes.md](mongo-case-notes.md); 7 aggregation pipelines | Done |
 | 12 | Next.js UI: forms, tables, search, filters, dashboards | `/login`, `/dashboard`, `/investigations` (+ `/new`, `/[id]`), `/assets` (+ `/[id]`), `/admin/users`, `/evidence` (+ `/new`, `/[id]`, `/verify`, `/stats`), `/audit` | Done |
 | 13 | API layer | `app/api/**` (23 route files), responses `{ data }` / `{ error }` | Done |
 | 14 | Credentials from environment, none hard-coded | `.env.example`, `lib/db.ts`, `lib/mongo.ts`, `lib/session-token.ts` (`JWT_SECRET`), `docker-compose.yml` | Done |
@@ -26,7 +26,7 @@ Status key: **Done** = implemented and exercised on a real MySQL 8 during develo
 | 18 | Goes beyond basic CRUD | custody procedure with row lock, tamper and audit triggers, full-text search, summary table, browser-side hashing, per-type artifact forms | Done |
 | 19 | Git | feature branches `feat/evidence`, `feat/core`; small conventional commits | Done |
 | 20 | Documentation | `README.md`, `docs/` (report, module docs, tests, demo script, screenshot list), `db/mongo/JUSTIFICATION.md` | Done |
-| 21 | Testing | `db/tests/evidence_tests.sql`, `db/tests/core_tests.sql`, [testing-core.md](testing-core.md) (23 cases; 3 not run, need MongoDB) | Done (Mongo untested) |
+| 21 | Testing | `db/tests/evidence_tests.sql`, `db/tests/core_tests.sql`, [testing-core.md](testing-core.md) (23 cases, all run) | Done |
 
 ## Advanced features (need 4; the project has 7)
 | Feature | Where |
