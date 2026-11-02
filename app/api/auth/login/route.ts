@@ -4,6 +4,7 @@ import { query, withTransaction } from "@/lib/db";
 import { signSession, type Role } from "@/lib/session-token";
 import { setSessionCookie } from "@/lib/session-cookie";
 import { ok, fail, parse, readJson, handleError } from "@/lib/api";
+import { clientIp, loginRetryAfterSeconds, recordLoginFailure, recordLoginSuccess } from "@/lib/rate-limit";
 
 export const dynamic = "force-dynamic";
 
@@ -24,6 +25,15 @@ export async function POST(req: Request) {
   try {
     const { email, password } = parse(body, await readJson(req));
 
+    // Too many recent failures for this address/account? Refuse before doing any password work.
+    const ip = clientIp(req);
+    const wait = loginRetryAfterSeconds(ip, email);
+    if (wait > 0) {
+      const res = fail(`Too many failed attempts. Try again in ${Math.ceil(wait / 60)} minute(s).`, 429);
+      res.headers.set("Retry-After", String(wait));
+      return res;
+    }
+
     const [user] = await query<{ id: number; full_name: string; password_hash: string; is_active: number; role_name: Role }>(
       `SELECT u.id, u.full_name, u.password_hash, u.is_active, r.role_name
        FROM users u JOIN roles r ON r.id = u.role_id
@@ -32,7 +42,11 @@ export async function POST(req: Request) {
     );
 
     const matches = await bcrypt.compare(password, user?.password_hash ?? DUMMY_HASH);
-    if (!user || !matches || !user.is_active) return fail("Invalid email or password", 401);
+    if (!user || !matches || !user.is_active) {
+      recordLoginFailure(ip, email);
+      return fail("Invalid email or password", 401);
+    }
+    recordLoginSuccess(ip, email);
 
     const token = await signSession({ userId: user.id, role: user.role_name, name: user.full_name });
     setSessionCookie(token);
